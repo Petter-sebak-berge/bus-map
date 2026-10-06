@@ -40,6 +40,7 @@ const no = {
       finished: "Ferdig med turen",
     },
     close: "Lukk",
+    locate: { find: "Vis min posisjon", unavailable: "Posisjonen er ikke tilgjengelig" },
     style: {
       label: "Kart",
       names: { liberty: "Liberty", bright: "Bright", dark: "Mørkt" },
@@ -80,6 +81,7 @@ const en: Dictionary = {
       finished: "Trip finished",
     },
     close: "Close",
+    locate: { find: "Show my location", unavailable: "Location not available" },
     style: {
       label: "Map",
       names: { liberty: "Liberty", bright: "Bright", dark: "Dark" },

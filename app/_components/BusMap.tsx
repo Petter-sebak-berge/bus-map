@@ -82,6 +82,8 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
   // Where the visitor was looking, so that changing the background map does not jump back to the start.
   const view = useRef({ center: [area.center.lon, area.center.lat] as [number, number], zoom: area.zoom });
 
+  // Whether we have already tried to open the map at the visitor's position.
+  const openedAtVisitor = useRef(false);
   // Where each dot is drawn right now.
   const shown = useRef(new Map<string, Position>());
   const { vehicles, failed, live } = useVehicles(areaId);
@@ -99,9 +101,23 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
       style: mapStyles[styleId],
       center: view.current.center,
       zoom: view.current.zoom,
+      // The words for the map's own buttons, in the page's language.
+      locale: {
+        "GeolocateControl.FindMyLocation": text.locate.find,
+        "GeolocateControl.LocationNotAvailable": text.locate.unavailable,
+      },
     });
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+
+    // A button that moves the map to where the visitor is and marks the spot with a blue dot.
+    // The browser asks the visitor for permission first. The position stays in the browser:
+    // it is used to move the map and is never sent to us or anyone else.
+    const locate = new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      fitBoundsOptions: { maxZoom: 15 },
+    });
+    map.addControl(locate, "bottom-right");
 
     // The edge around each dot and its pointer: dark on the light maps, light on the dark one,
     // so they stand out from the background either way.
@@ -165,6 +181,25 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
         paint: { "text-color": "#0a100e" },
       });
       setMapReady(true);
+
+      // Open at the visitor's own position, but only the first time the map is drawn, only if
+      // they have already said yes to sharing it on an earlier visit (so nobody is met by a
+      // permission question before they have seen the page), and only if they are inside the
+      // area the map covers.
+      if (openedAtVisitor.current) return;
+      openedAtVisitor.current = true;
+      navigator.permissions
+        ?.query({ name: "geolocation" })
+        .then((permission) => {
+          if (permission.state !== "granted") return;
+          navigator.geolocation.getCurrentPosition(({ coords }) => {
+            const { minLat, maxLat, minLon, maxLon } = area.box;
+            const inside =
+              coords.latitude > minLat && coords.latitude < maxLat && coords.longitude > minLon && coords.longitude < maxLon;
+            if (inside) locate.trigger();
+          });
+        })
+        .catch(() => {}); // a browser that can't answer simply starts at the usual place
     });
 
     // A click on a dot selects that vehicle; a click anywhere else clears the selection.
@@ -182,7 +217,9 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
       map.remove();
       setMapReady(false);
     };
-  }, [styleId]);
+    // The list of things this effect depends on: it runs again only when one of them changes.
+    // In practice that is the background map; the other two stay the same while the page is open.
+  }, [styleId, area, text.locate]);
 
   // 2. Whenever new positions arrive (or the map becomes ready), move the dots. Each dot glides
   //    from where it is drawn now to its new position, a small step per screen frame.
