@@ -10,6 +10,9 @@ export type Vehicle = {
   destination: string;
   lat: number;
   lon: number;
+  // The compass direction the vehicle is heading, in degrees: 0 is north, 90 east, 180 south.
+  // null when the vehicle doesn't report one.
+  bearing: number | null;
   delay: number | null; // seconds behind schedule; negative means ahead of it
   updated: string; // when the vehicle last reported its position
 };

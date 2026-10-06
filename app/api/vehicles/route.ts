@@ -20,6 +20,7 @@ const QUERY = `
       mode
       lastUpdated
       delay
+      bearing
       destinationName
       location { latitude longitude }
       line { publicCode lineName }
@@ -35,6 +36,7 @@ type EnturVehicle = {
   mode: string;
   lastUpdated: string;
   delay: number | null;
+  bearing: number | null;
   destinationName: string | null;
   location: { latitude: number; longitude: number } | null;
   line: { publicCode: string | null; lineName: string | null } | null;
@@ -73,6 +75,9 @@ export async function GET(request: Request) {
         destination: vehicle.destinationName ?? "",
         lat: vehicle.location!.latitude,
         lon: vehicle.location!.longitude,
+        // About one vehicle in ten reports exactly 0 or nothing. A real heading is almost never
+        // exactly 0, and it would wrongly read as "heading north", so 0 is treated as unknown.
+        bearing: vehicle.bearing || null,
         delay: vehicle.delay,
         updated: vehicle.lastUpdated,
       }));

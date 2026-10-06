@@ -17,18 +17,23 @@ repository, which Claude reads automatically. They are kept only there; don't co
 - `app/_components/BusMap.tsx` – the map (MapLibre), the ten-second refresh and the selected-vehicle card.
 - `app/api/vehicles/route.ts` – asks Entur's GraphQL API for vehicle positions and caches the answer.
 - `lib/areas.ts` – the area the map covers. Nothing else names Bergen or Skyss; keep it that way.
+- `lib/mapStyles.ts` – the background maps to choose between.
 - `lib/vehicles.ts` – the `Vehicle` type shared by server and browser, and delay → colour.
 
 ## Worth knowing
 
 - Entur: no key. Every request sends the header `ET-Client-Name: servereniskogen-busmap`. Data is under
-  NLOD and must be credited ("Data made available by Entur"); the licence also asks for their logo, which
-  is not on the page yet.
+  NLOD and must be credited with the text "Data made available by Entur" and their logo. The logo is
+  `public/entur-logo.svg`, the white version for dark backgrounds, unchanged from Entur's logo package at
+  linje.entur.no. Their rules: at least 20 pixels high, keep the empty space around it.
 - `maxDataAge: "PT2M"` in the query leaves out parked vehicles. Without it, more than half are stale.
 - Entur's feed had no Bybanen (light rail) and no Ruter (Oslo) when checked on 6 Oct 2026.
 - Entur also offers the positions as a live stream over WebSocket
   (`wss://api.entur.io/realtime/v2/vehicles/subscriptions`). Not used yet.
-- The background map is OpenFreeMap's `dark` style; the line numbers use its font `Noto Sans Regular`.
+- The background maps are listed in `lib/mapStyles.ts` and picked in the top panel: three OpenFreeMap styles
+  (Liberty is the default). Changing background redraws the map. The line numbers use the font
+  `Noto Sans Regular`, which all three styles have. Kartverket's map and satellite pictures were tried and dropped.
+- Norwegian aerial photos (Norge i bilder) are not open: Kartverket closed the open service.
 - Fetching stops while the tab is hidden. The preview pane counts as hidden until its tab is fronted.
 
 ## Useful commands

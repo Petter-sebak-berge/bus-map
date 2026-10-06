@@ -30,6 +30,10 @@ const no = {
       unknown: "Ukjent forsinkelse",
     },
     close: "Lukk",
+    style: {
+      label: "Kart",
+      names: { liberty: "Liberty", bright: "Bright", dark: "Mørkt" },
+    },
   },
   credit: { text: "Data gjort tilgjengelig av" },
 };
@@ -56,6 +60,10 @@ const en: Dictionary = {
       unknown: "Delay unknown",
     },
     close: "Close",
+    style: {
+      label: "Map",
+      names: { liberty: "Liberty", bright: "Bright", dark: "Dark" },
+    },
   },
   credit: { text: "Data made available by" },
 };

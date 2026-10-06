@@ -19,6 +19,7 @@ Built with Next.js (App Router), TypeScript, Tailwind CSS and MapLibre.
 | `app/api/vehicles/route.ts` | The endpoint: asks Entur, trims the answer, caches it |
 | `app/_components/BusMap.tsx` | The map: draws it, fetches positions, shows the selected vehicle |
 | `lib/areas.ts` | The area the map covers. More areas can be added here |
+| `lib/mapStyles.ts` | The background maps the visitor can choose between |
 | `lib/vehicles.ts` | What a vehicle looks like, and how a delay becomes a colour |
 | `lib/dictionaries.ts` | All text, in Norwegian and English |
 
@@ -43,4 +44,4 @@ Then open http://localhost:3200. No account or key is needed.
 
 - Vehicle positions: data made available by [Entur](https://entur.no), under the Norwegian Licence
   for Open Government Data (NLOD).
-- Background map: [OpenFreeMap](https://openfreemap.org), © OpenMapTiles, data from OpenStreetMap.
+- Background maps: [OpenFreeMap](https://openfreemap.org), © OpenMapTiles, data from OpenStreetMap.
