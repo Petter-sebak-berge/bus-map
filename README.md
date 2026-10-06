@@ -24,6 +24,7 @@ Built with Next.js (App Router), TypeScript, Tailwind CSS and MapLibre.
 | `app/api/vehicles/route.ts` | The endpoint: asks Entur, trims the answer, caches it |
 | `app/_components/BusMap.tsx` | The map: draws it, lets the dots glide, shows the selected vehicle |
 | `app/_components/useVehicles.ts` | Where positions come from: the endpoint first, then the live stream |
+| `app/_components/VisitCounter.tsx` | Counts a visit: a number per day, language and country, nothing per visitor |
 | `lib/areas.ts` | The area the map covers. More areas can be added here |
 | `lib/mapStyles.ts` | The background maps the visitor can choose between |
 | `lib/vehicles.ts` | What a vehicle looks like, how Entur's data becomes that, and how a status becomes a colour |

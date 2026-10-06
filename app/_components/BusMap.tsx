@@ -274,7 +274,7 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
         <div ref={container} className="h-full" role="application" aria-label={text.label} />
       </div>
 
-      <section className="glass absolute left-2 top-2 w-[min(20rem,calc(100%-1rem))] rounded-lg p-3">
+      <section className="glass absolute left-2 top-2 max-h-[calc(100%-1rem)] w-[min(20rem,calc(100%-1rem))] overflow-y-auto rounded-lg p-3">
         {children}
         {/* aria-live makes screen readers announce the line when it changes. */}
         <p className="mt-2 flex items-center gap-2 text-sm" aria-live="polite">

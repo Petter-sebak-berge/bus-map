@@ -25,6 +25,10 @@ repository, which Claude reads automatically. They are kept only there; don't co
 
 ## Worth knowing
 
+- Privacy: the fold-out note in the panel (`about` in `lib/dictionaries.ts`) lists every outside request the
+  page makes. A new outside request, or anything stored about a visitor, must be added there in both languages.
+- Visits are counted by `app/_components/VisitCounter.tsx` (site id `bus-map`), only on the live address.
+
 - Entur: no key. Every request sends the header `ET-Client-Name: servereniskogen-busmap`. Data is under
   NLOD and must be credited with the text "Data made available by Entur" and their logo. The logo is
   `public/entur-logo.svg`, the white version for dark backgrounds, unchanged from Entur's logo package at
