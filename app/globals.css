@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+/* Design tokens: the site's colours and fonts, named once and reused everywhere.
+   Tailwind turns each one into classes, e.g. --color-muted gives text-muted and bg-muted.
+   The colours are the same as on servereniskogen.no, so the sites look related. */
+@theme inline {
+  --color-bg: #0a100e;
+  --color-ink: #e8ede8; /* main text */
+  --color-muted: #93a39b; /* secondary text */
+  --color-accent: #f2b544;
+
+  --font-sans: var(--font-geist-sans);
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* A clear outline for people who navigate with the keyboard. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* A dark, slightly see-through panel that stays readable on top of the map. */
+.glass {
+  background: rgb(10 16 14 / 0.82);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  backdrop-filter: blur(12px);
+}
