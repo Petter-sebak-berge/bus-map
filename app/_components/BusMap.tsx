@@ -1,9 +1,10 @@
 "use client";
 // The map. It runs in the visitor's browser (hence "use client"), because a map is drawn and moved
-// around there. It does three things:
-//   1. draws the map, once
-//   2. asks our own /api/vehicles for positions every ten seconds
-//   3. hands the newest positions to the map, which draws one dot per vehicle
+// around there. It does two things:
+//   1. draws the map
+//   2. hands the newest positions to the map, which draws one dot per vehicle and lets it glide
+//      from where it was to where it is now
+// Where the positions come from is in useVehicles.ts.
 //
 // The drawing is done by MapLibre, an open-source map library. The background maps it can show
 // are listed in lib/mapStyles.ts.
@@ -15,23 +16,31 @@ import type { FeatureCollection, Point } from "geojson";
 import { areas, type AreaId } from "@/lib/areas";
 import type { Dictionary } from "@/lib/dictionaries";
 import { mapStyleIds, mapStyles, type MapStyleId } from "@/lib/mapStyles";
-import { delayStatus, statusColors, type DelayStatus, type Vehicle } from "@/lib/vehicles";
+import { statusColors, statusOf, type Vehicle } from "@/lib/vehicles";
+import { useVehicles } from "./useVehicles";
 
-const REFRESH_MS = 10_000;
+// How long a dot takes to glide to a new position. New positions arrive about once a second.
+const GLIDE_MS = 1000;
+// A jump longer than this (in degrees, roughly 500 metres) is a correction, not driving: no glide.
+const MAX_GLIDE = 0.005;
+
+type Position = [lon: number, lat: number];
 
 // Maps don't take a plain list; they take GeoJSON, the standard format for "things with a place".
 // Each vehicle becomes a "feature": a point, plus the properties the map uses to colour and label it.
 // Note the order: GeoJSON writes longitude first, then latitude.
-function toGeoJson(vehicles: Vehicle[]): FeatureCollection<Point> {
+// `shown` says where each dot is drawn right now, which during a glide is somewhere between
+// its old and its new position.
+function toGeoJson(vehicles: Vehicle[], shown?: Map<string, Position>): FeatureCollection<Point> {
   return {
     type: "FeatureCollection",
     features: vehicles.map((vehicle) => ({
       type: "Feature",
-      geometry: { type: "Point", coordinates: [vehicle.lon, vehicle.lat] },
+      geometry: { type: "Point", coordinates: shown?.get(vehicle.id) ?? [vehicle.lon, vehicle.lat] },
       properties: {
         id: vehicle.id,
         line: vehicle.line,
-        status: delayStatus(vehicle.delay),
+        status: statusOf(vehicle),
         // Left out when unknown, so the map draws no arrow for that vehicle.
         ...(vehicle.bearing !== null && { bearing: vehicle.bearing }),
       },
@@ -73,11 +82,13 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
   // Where the visitor was looking, so that changing the background map does not jump back to the start.
   const view = useRef({ center: [area.center.lon, area.center.lat] as [number, number], zoom: area.zoom });
 
+  // Where each dot is drawn right now.
+  const shown = useRef(new Map<string, Position>());
+  const { vehicles, failed, live } = useVehicles(areaId);
+
   // "State" is what the component remembers and redraws for when it changes.
   const [styleId, setStyleId] = useState<MapStyleId>("liberty");
   const [mapReady, setMapReady] = useState(false);
-  const [vehicles, setVehicles] = useState<Vehicle[] | null>(null); // null = nothing fetched yet
-  const [failed, setFailed] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // 1. Draw the map. useEffect runs after the page is shown, and only in the browser. It runs
@@ -132,6 +143,8 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
             "late", statusColors.late,
             "veryLate", statusColors.veryLate,
             "unknown", statusColors.unknown,
+            "waiting", statusColors.waiting,
+            "finished", statusColors.finished,
             statusColors.onTime,
           ],
           "circle-stroke-width": 1.5,
@@ -171,41 +184,42 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
     };
   }, [styleId]);
 
-  // 2. Fetch positions now and then every ten seconds, but only while the tab is visible:
-  //    a map nobody is looking at shouldn't keep asking.
+  // 2. Whenever new positions arrive (or the map becomes ready), move the dots. Each dot glides
+  //    from where it is drawn now to its new position, a small step per screen frame.
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | undefined;
+    const source = mapRef.current?.getSource<GeoJSONSource>("vehicles");
+    if (!mapReady || !vehicles || !source) return;
 
-    async function refresh() {
-      try {
-        const response = await fetch(`/api/vehicles?area=${areaId}`);
-        if (!response.ok) throw new Error(`Status ${response.status}`);
-        setVehicles(await response.json());
-        setFailed(false);
-      } catch {
-        setFailed(true); // keep the last known positions on the map and try again next round
+    const from = shown.current;
+    const started = performance.now();
+    // People who have asked their device for less motion get the dots moved in one step.
+    const glide = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let frame = 0;
+
+    function draw(now: number) {
+      // `progress` goes from 0 (just started) to 1 (arrived).
+      const progress = glide ? Math.min(1, (now - started) / GLIDE_MS) : 1;
+      const next = new Map<string, Position>();
+      for (const vehicle of vehicles!) {
+        const start = from.get(vehicle.id);
+        const far =
+          !start || Math.abs(vehicle.lon - start[0]) > MAX_GLIDE || Math.abs(vehicle.lat - start[1]) > MAX_GLIDE;
+        next.set(
+          vehicle.id,
+          far
+            ? [vehicle.lon, vehicle.lat]
+            : [start[0] + (vehicle.lon - start[0]) * progress, start[1] + (vehicle.lat - start[1]) * progress],
+        );
       }
+      shown.current = next;
+      source!.setData(toGeoJson(vehicles!, next));
+      // requestAnimationFrame asks the browser to call `draw` again just before it next
+      // repaints the screen, usually 60 times a second.
+      if (progress < 1) frame = requestAnimationFrame(draw);
     }
 
-    function startOrStop() {
-      clearInterval(timer);
-      if (document.visibilityState !== "visible") return;
-      refresh();
-      timer = setInterval(refresh, REFRESH_MS);
-    }
-
-    startOrStop();
-    document.addEventListener("visibilitychange", startOrStop);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", startOrStop);
-    };
-  }, [areaId]);
-
-  // 3. Whenever new positions arrive (or the map becomes ready), give them to the map.
-  useEffect(() => {
-    if (!mapReady || !vehicles) return;
-    mapRef.current?.getSource<GeoJSONSource>("vehicles")?.setData(toGeoJson(vehicles));
+    frame = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(frame);
   }, [mapReady, vehicles]);
 
   // Looked up from the newest list each time, so the card follows the bus as its delay changes.
@@ -226,11 +240,17 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
       <section className="glass absolute left-2 top-2 w-[min(20rem,calc(100%-1rem))] rounded-lg p-3">
         {children}
         {/* aria-live makes screen readers announce the line when it changes. */}
-        <p className="mt-2 text-sm" aria-live="polite">
+        <p className="mt-2 flex items-center gap-2 text-sm" aria-live="polite">
           {statusLine}
+          {live && (
+            <span className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-xs">
+              <span className="live-dot size-1.5 rounded-full" style={{ background: statusColors.onTime }} />
+              {text.live}
+            </span>
+          )}
         </p>
         <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted">
-          {(["onTime", "late", "veryLate", "early"] as const).map((status) => (
+          {(["onTime", "late", "veryLate", "early", "waiting"] as const).map((status) => (
             <li key={status} className="flex items-center gap-1.5">
               <span className="size-2.5 shrink-0 rounded-full" style={{ background: statusColors[status] }} />
               {text.legend[status]}
@@ -259,7 +279,7 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
           <div className="flex items-start gap-3">
             <span
               className="min-w-10 rounded-md px-2 py-1 text-center font-semibold text-bg"
-              style={{ background: statusColors[delayStatus(selected.delay)] }}
+              style={{ background: statusColors[statusOf(selected)] }}
             >
               {selected.line}
             </span>
@@ -270,7 +290,7 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
               <p className="truncate text-xs text-muted">
                 {text.modes[selected.mode as keyof typeof text.modes] ?? selected.mode} · {selected.lineName}
               </p>
-              <p className="mt-1 text-sm">{delayText(selected.delay, text.delay)}</p>
+              <p className="mt-1 text-sm">{statusText(selected, text.delay)}</p>
             </div>
             <button
               type="button"
@@ -287,11 +307,24 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
   );
 }
 
-// Turns seconds into words: 134 becomes "2 min late".
-function delayText(delay: number | null, words: Dictionary["map"]["delay"]) {
-  const status: DelayStatus = delayStatus(delay);
-  if (delay === null || status === "unknown") return words.unknown;
-  if (status === "onTime") return words.onTime;
-  const minutes = String(Math.round(Math.abs(delay) / 60));
-  return (status === "early" ? words.early : words.late).replace("{n}", minutes);
+// Turns a vehicle's status into words: 134 seconds late becomes "2 min late", and a bus waiting
+// at its first stop with 300 seconds to go becomes "Leaves in 5 min".
+function statusText(vehicle: Vehicle, words: Dictionary["map"]["delay"]) {
+  const status = statusOf(vehicle);
+  const minutes = String(Math.round(Math.abs(vehicle.delay ?? 0) / 60));
+  switch (status) {
+    case "waiting":
+      // Only a departure that is still ahead gets a countdown.
+      return (vehicle.delay ?? 0) < -30 ? words.leavesIn.replace("{n}", minutes) : words.waiting;
+    case "finished":
+      return words.finished;
+    case "unknown":
+      return words.unknown;
+    case "onTime":
+      return words.onTime;
+    case "early":
+      return words.early.replace("{n}", minutes);
+    default:
+      return words.late.replace("{n}", minutes);
+  }
 }

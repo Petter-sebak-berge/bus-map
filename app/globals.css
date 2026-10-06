@@ -32,3 +32,16 @@ body {
   border: 1px solid rgb(255 255 255 / 0.1);
   backdrop-filter: blur(12px);
 }
+
+/* The small dot beside "Live" fades in and out while the stream is connected. */
+@media (prefers-reduced-motion: no-preference) {
+  .live-dot {
+    animation: pulse 2s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}

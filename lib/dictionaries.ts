@@ -20,7 +20,14 @@ const no = {
     loading: "Henter posisjoner …",
     failed: "Får ikke hentet posisjoner akkurat nå. Prøver igjen.",
     count: "{n} kjøretøy i trafikk nå",
-    legend: { early: "For tidlig", onTime: "I rute", late: "2–5 min forsinket", veryLate: "Over 5 min forsinket" },
+    live: "Direkte",
+    legend: {
+      early: "For tidlig",
+      onTime: "I rute",
+      late: "2–5 min forsinket",
+      veryLate: "Over 5 min forsinket",
+      waiting: "Venter på avgang",
+    },
     modes: { BUS: "Buss", FERRY: "Båt", RAIL: "Tog", TRAM: "Trikk", COACH: "Ekspressbuss" },
     towards: "mot",
     delay: {
@@ -28,6 +35,9 @@ const no = {
       onTime: "I rute",
       late: "{n} min forsinket",
       unknown: "Ukjent forsinkelse",
+      leavesIn: "Går om {n} min",
+      waiting: "Venter på avgang",
+      finished: "Ferdig med turen",
     },
     close: "Lukk",
     style: {
@@ -50,7 +60,14 @@ const en: Dictionary = {
     loading: "Fetching positions …",
     failed: "Can't fetch positions right now. Trying again.",
     count: "{n} vehicles on the road now",
-    legend: { early: "Early", onTime: "On time", late: "2–5 min late", veryLate: "Over 5 min late" },
+    live: "Live",
+    legend: {
+      early: "Early",
+      onTime: "On time",
+      late: "2–5 min late",
+      veryLate: "Over 5 min late",
+      waiting: "Waiting to depart",
+    },
     modes: { BUS: "Bus", FERRY: "Boat", RAIL: "Train", TRAM: "Tram", COACH: "Coach" },
     towards: "towards",
     delay: {
@@ -58,6 +75,9 @@ const en: Dictionary = {
       onTime: "On time",
       late: "{n} min late",
       unknown: "Delay unknown",
+      leavesIn: "Leaves in {n} min",
+      waiting: "Waiting to depart",
+      finished: "Trip finished",
     },
     close: "Close",
     style: {

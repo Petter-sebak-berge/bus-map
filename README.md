@@ -7,20 +7,26 @@ Built with Next.js (App Router), TypeScript, Tailwind CSS and MapLibre.
 
 ## How it works
 
-1. The browser asks this site's own endpoint, `/api/vehicles`, every ten seconds.
+1. When the page opens, the browser asks this site's own endpoint, `/api/vehicles`, for every
+   vehicle at once.
 2. The endpoint asks [Entur](https://developer.entur.org), which collects all public transport data
    in Norway, for the vehicles inside the map's area. Entur's API speaks GraphQL, so the request
    names exactly the fields it wants. The answer is cached for ten seconds, so Entur gets the same
    few requests a minute however many people are watching.
-3. The map turns the list into GeoJSON and MapLibre draws it.
+3. The browser then opens a WebSocket straight to Entur and subscribes to the same area. From then
+   on Entur sends each new position as it happens, about once a second in total. If the stream
+   drops, the page falls back to asking the endpoint every ten seconds.
+4. The map turns the list into GeoJSON and MapLibre draws it. Each dot glides from its old position
+   to its new one, and its pointed tip shows the direction it is heading.
 
 | File | What it does |
 |---|---|
 | `app/api/vehicles/route.ts` | The endpoint: asks Entur, trims the answer, caches it |
-| `app/_components/BusMap.tsx` | The map: draws it, fetches positions, shows the selected vehicle |
+| `app/_components/BusMap.tsx` | The map: draws it, lets the dots glide, shows the selected vehicle |
+| `app/_components/useVehicles.ts` | Where positions come from: the endpoint first, then the live stream |
 | `lib/areas.ts` | The area the map covers. More areas can be added here |
 | `lib/mapStyles.ts` | The background maps the visitor can choose between |
-| `lib/vehicles.ts` | What a vehicle looks like, and how a delay becomes a colour |
+| `lib/vehicles.ts` | What a vehicle looks like, how Entur's data becomes that, and how a status becomes a colour |
 | `lib/dictionaries.ts` | All text, in Norwegian and English |
 
 ## How this was built
