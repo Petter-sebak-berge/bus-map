@@ -32,6 +32,7 @@ Built with Next.js (App Router), TypeScript, Tailwind CSS and MapLibre.
 | `lib/journey.ts` | What a trip looks like, and the unpacking of Entur's compact road format |
 | `app/api/stops/route.ts`, `app/api/departures/route.ts` | Two more endpoints: every stop in the area, and one stop's next departures |
 | `app/_components/StopCard.tsx`, `app/_components/useStops.ts` | The departure board shown when you click a stop |
+| `app/[lang]/opengraph-image.tsx` | The preview picture shown when the link is shared |
 | `lib/areas.ts` | The area the map covers. More areas can be added here |
 | `lib/mapStyles.ts` | The background maps the visitor can choose between |
 | `lib/vehicles.ts` | What a vehicle looks like, how Entur's data becomes that, and how a status becomes a colour |

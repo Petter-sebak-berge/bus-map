@@ -128,6 +128,9 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
   const selected = vehicles?.find((vehicle) => vehicle.id === selectedId);
   const journey = useJourney(selected?.journeyId ?? null);
 
+  // Whether the map follows the clicked vehicle as it drives.
+  const [following, setFollowing] = useState(false);
+
   // The clicked stop, if any. A vehicle and a stop are never selected at the same time.
   const [selectedStop, setSelectedStop] = useState<{ id: string; name: string } | null>(null);
   // The stops are fetched the first time the visitor zooms in far enough to see them.
@@ -321,12 +324,17 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
       const [vehicle] = map.queryRenderedFeatures(event.point, { layers: ["vehicle-dots"] });
       const [stop] = vehicle ? [] : map.queryRenderedFeatures(event.point, { layers: ["stop-dots"] });
       setSelectedId(vehicle ? (vehicle.properties.id as string) : null);
+      if (!vehicle) setFollowing(false); // nothing left to follow
       setSelectedStop(stop ? { id: stop.properties.id as string, name: stop.properties.name as string } : null);
     });
     for (const layer of ["vehicle-dots", "stop-dots"]) {
       map.on("mouseenter", layer, () => (map.getCanvas().style.cursor = "pointer"));
       map.on("mouseleave", layer, () => (map.getCanvas().style.cursor = ""));
     }
+
+    // Dragging the map by hand means the visitor wants to look somewhere else: stop following.
+    // (Zooming does not count, so you can follow a bus and zoom in on it.)
+    map.on("dragstart", () => setFollowing(false));
 
     // Ask for the stops once the visitor is close enough to see them (and never un-ask).
     const wantStops = () => {
@@ -405,6 +413,17 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
     });
   }, [mapReady, journey]);
 
+  // While following, move the map so the clicked vehicle stays in the middle. It runs each time
+  // the vehicle reports a new position, and takes as long as the dot's own glide, so the two
+  // move together. The effect depends on the two numbers, not on the whole vehicle, so it does
+  // not run again when only the delay changes.
+  const followLon = following ? selected?.lon : undefined;
+  const followLat = following ? selected?.lat : undefined;
+  useEffect(() => {
+    if (!mapReady || followLon === undefined || followLat === undefined) return;
+    mapRef.current?.easeTo({ center: [followLon, followLat], duration: GLIDE_MS, easing: (t) => t });
+  }, [mapReady, followLon, followLat]);
+
   // 4. Put the stops on the map when they have been fetched, and ring the clicked one.
   useEffect(() => {
     const map = mapRef.current;
@@ -455,7 +474,8 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
         {/* aria-live makes screen readers announce the line when it changes. */}
         <p className="mt-2 flex items-center gap-2 text-sm" aria-live="polite">
           {statusLine}
-          {live && (
+          {/* The badge waits for the first positions, so it never sits beside "Fetching positions". */}
+          {live && vehicles && (
             <span className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-xs">
               <span className="live-dot size-1.5 rounded-full" style={{ background: statusColors.onTime }} />
               {text.live}
@@ -555,13 +575,27 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
             </div>
             <button
               type="button"
-              onClick={() => setSelectedId(null)}
+              onClick={() => {
+                setSelectedId(null);
+                setFollowing(false);
+              }}
               aria-label={text.close}
               className="-m-1 rounded p-1 text-muted hover:text-ink"
             >
               ✕
             </button>
           </div>
+          {/* aria-pressed tells screen readers that this is an on/off button and which it is. */}
+          <button
+            type="button"
+            onClick={() => setFollowing(!following)}
+            aria-pressed={following}
+            className={`mt-2 rounded-full border px-3 py-1 text-xs ${
+              following ? "border-transparent bg-ink text-bg" : "border-white/20 text-muted hover:text-ink"
+            }`}
+          >
+            {following ? text.follow.stop : text.follow.start}
+          </button>
           {/* The coming stops. Only a handful fit; the rest are reached by scrolling the list. */}
           {journey === "loading" && <p className="mt-2 text-xs text-muted">{text.stops.loading}</p>}
           {comingStops.length > 0 && (

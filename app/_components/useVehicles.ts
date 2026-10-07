@@ -29,6 +29,7 @@ const SUBSCRIPTION = `
 const TICK_MS = 10_000; // how often we check on things
 const SNAPSHOT_EVERY = 6; // with the stream running, still take a snapshot every 6th tick (a minute)
 const RECONNECT_MS = 5_000;
+const SILENCE_MS = 45_000; // a stream that has said nothing for this long is counted as dead
 
 export function useVehicles(areaId: AreaId) {
   const [vehicles, setVehicles] = useState<Vehicle[] | null>(null); // null = nothing fetched yet
@@ -42,6 +43,7 @@ export function useVehicles(areaId: AreaId) {
     let timer: ReturnType<typeof setInterval> | undefined;
     let reconnect: ReturnType<typeof setTimeout> | undefined;
     let ticks = 0;
+    let lastHeard = 0; // when the stream last sent us something
     let watching = false; // false while the tab is hidden or the component is gone
 
     // Puts new positions into the table and hands the result to the map.
@@ -79,6 +81,7 @@ export function useVehicles(areaId: AreaId) {
     function connect() {
       const stream = new WebSocket(STREAM_URL, "graphql-transport-ws");
       socket = stream;
+      lastHeard = Date.now(); // a new connection gets the full time to start talking
       const send = (message: object) => stream.send(JSON.stringify(message));
 
       stream.onopen = () => send({ type: "connection_init" });
@@ -91,20 +94,25 @@ export function useVehicles(areaId: AreaId) {
             payload: { query: SUBSCRIPTION, variables: { box: areas[areaId].box } },
           });
           setLive(true);
+          lastHeard = Date.now();
         } else if (message.type === "next") {
+          lastHeard = Date.now();
           take(toVehicles(message.payload.data?.vehicles ?? [], areas[areaId]));
         } else if (message.type === "ping") {
           send({ type: "pong" }); // "are you still there?" "yes"
         }
       };
-      // If the connection drops, the snapshots take over (see the timer below) and we try to
-      // connect again a little later.
-      stream.onclose = () => {
-        if (socket !== stream) return; // an old connection we already replaced
-        socket = null;
-        setLive(false);
-        if (watching) reconnect = setTimeout(connect, RECONNECT_MS);
-      };
+      stream.onclose = () => lost(stream);
+    }
+
+    // Called when a connection is gone: it dropped, or it went silent and we gave up on it. The
+    // snapshots take over (see the timer below) and we try to connect again a little later.
+    function lost(stream: WebSocket) {
+      if (socket !== stream) return; // an old connection we already replaced
+      socket = null;
+      setLive(false);
+      stream.close(); // does nothing if it is closed already
+      if (watching) reconnect = setTimeout(connect, RECONNECT_MS);
     }
 
     function stop() {
@@ -123,6 +131,10 @@ export function useVehicles(areaId: AreaId) {
       connect();
       timer = setInterval(() => {
         ticks += 1;
+        // A connection can stay open and still stop sending, for example when a phone changes
+        // network. With hundreds of vehicles there is normally a message every second, so a long
+        // silence means the stream is dead: treat it as lost and start over.
+        if (socket && Date.now() - lastHeard > SILENCE_MS) lost(socket);
         // Without the stream, ask every tick. With it, only now and then, as a safety net.
         if (!socket || ticks % SNAPSHOT_EVERY === 0) snapshot();
       }, TICK_MS);

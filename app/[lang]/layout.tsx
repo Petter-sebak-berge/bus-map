@@ -41,6 +41,9 @@ export async function generateMetadata({ params }: LayoutProps<"/[lang]">): Prom
       locale: lang === "no" ? "nb_NO" : "en_GB",
       type: "website",
     },
+    // Asks X (Twitter) to show the preview picture large. The picture itself is made in
+    // opengraph-image.tsx, and Next.js adds its address to the page by itself.
+    twitter: { card: "summary_large_image" },
   };
 }
 

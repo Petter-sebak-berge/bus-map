@@ -79,3 +79,11 @@ repository, which Claude reads automatically. They are kept only there; don't co
 - A lesson: backslashes written through a shell script into a file can be lost. The line filter's regex lost
   its whitespace class that way and went live broken for a day (7 Oct 2026). Edit such lines with the Edit
   tool, not through a script, and read them back.
+- Silent stream (7 Oct 2026): `useVehicles` counts a stream as dead after 45 seconds without a message
+  (`SILENCE_MS`) and reconnects. At night with almost no traffic this can reconnect now and then; harmless.
+- Follow (7 Oct 2026): `following` in `BusMap.tsx` eases the map to the clicked vehicle on each new position.
+  Dragging the map, closing the card or clicking empty map turns it off; zooming does not.
+- Preview image (7 Oct 2026): `app/[lang]/opengraph-image.tsx` draws a 1200x630 picture per language with
+  `next/og`. It is a drawing, not real map data. Sharing sites cache it for days after a change.
+- The preview pane stops calling `requestAnimationFrame` when the app window is covered or in the background,
+  even while it reports itself visible. Then no dots are drawn and nothing glides. That is the pane, not a bug.
