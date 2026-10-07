@@ -18,11 +18,16 @@ import { areas, type AreaId } from "@/lib/areas";
 import type { Dictionary } from "@/lib/dictionaries";
 import { mapStyleIds, mapStyles, type MapStyleId } from "@/lib/mapStyles";
 import { statusColors, statusOf, type Vehicle } from "@/lib/vehicles";
+import StopCard from "./StopCard";
 import { useJourney } from "./useJourney";
+import { useStopPlaces } from "./useStops";
 import { useVehicles } from "./useVehicles";
 
-// The colour of a clicked vehicle's route. Purple is not used for anything else on the map.
+// The colour of a clicked vehicle's route and of the ring around a clicked stop. Purple is not
+// used for anything else on the map.
 const ROUTE_COLOR = "#7c3aed";
+// Stops are drawn from this zoom level and closer. Further out there are too many to tell apart.
+const STOPS_FROM_ZOOM = 13;
 
 // Writes a time as "14:05", Norwegian time whatever the visitor's own clock is set to.
 const clock = new Intl.DateTimeFormat("nb-NO", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Oslo" });
@@ -103,7 +108,7 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
   // useMemo remembers the result and works it out again only when the list or the text changes,
   // so the map isn't handed a "new" list every time something unrelated is redrawn.
   const shownVehicles = useMemo(() => {
-    const wanted = lineSearch.toUpperCase().split(/[s,]+/).filter(Boolean);
+    const wanted = lineSearch.toUpperCase().split(/[ ,]+/).filter(Boolean);
     if (!vehicles || wanted.length === 0) return vehicles;
     return vehicles.filter((vehicle) => wanted.includes(vehicle.line.toUpperCase()));
   }, [vehicles, lineSearch]);
@@ -122,6 +127,12 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
   // its delay changes. Its trip id is handed to useJourney, which fetches the route and stops.
   const selected = vehicles?.find((vehicle) => vehicle.id === selectedId);
   const journey = useJourney(selected?.journeyId ?? null);
+
+  // The clicked stop, if any. A vehicle and a stop are never selected at the same time.
+  const [selectedStop, setSelectedStop] = useState<{ id: string; name: string } | null>(null);
+  // The stops are fetched the first time the visitor zooms in far enough to see them.
+  const [stopsWanted, setStopsWanted] = useState(false);
+  const stopPlaces = useStopPlaces(areaId, stopsWanted);
 
   // 1. Draw the map. useEffect runs after the page is shown, and only in the browser. It runs
   //    again when the visitor picks another background: the old map is removed and a new one drawn.
@@ -154,10 +165,57 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
     const outline = styleId === "dark" ? "#e8ede8" : "#0a100e";
 
     map.on("load", () => {
-      // A "source" is the data, a "layer" is one way of drawing it. One source, three layers,
-      // drawn in this order: the direction pointers, the coloured dots, and the line numbers.
-      // The route of the clicked vehicle and its stops come first, so they lie under the dots.
-      // They start out empty and are filled in further down, in step 3.
+      // A "source" is the data, a "layer" is one way of drawing it. Layers are drawn in the order
+      // they are added, so what comes first lies underneath: all the stops, then the route of the
+      // clicked vehicle, then the vehicles. The sources start out empty and are filled in further
+      // down, in steps 2 to 4.
+      const empty = { type: "FeatureCollection" as const, features: [] };
+      map.addSource("stop-places", { type: "geojson", data: empty });
+      map.addLayer({
+        id: "stop-dots",
+        type: "circle",
+        source: "stop-places",
+        minzoom: STOPS_FROM_ZOOM,
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], STOPS_FROM_ZOOM, 2.5, 16, 6],
+          "circle-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "#5b6b63",
+        },
+      });
+      map.addLayer({
+        id: "stop-names",
+        type: "symbol",
+        source: "stop-places",
+        minzoom: 15, // names only when zoomed in close, or they would cover the map
+        layout: {
+          "text-field": ["get", "name"],
+          "text-font": ["Noto Sans Regular"],
+          "text-size": 11,
+          "text-anchor": "top",
+          "text-offset": [0, 0.7],
+        },
+        // A "halo" is an edge around the letters that keeps them readable on any background.
+        paint: {
+          "text-color": styleId === "dark" ? "#e8ede8" : "#3b4741",
+          "text-halo-color": styleId === "dark" ? "#0a100e" : "#ffffff",
+          "text-halo-width": 1.5,
+        },
+      });
+      // A ring around the clicked stop. The filter starts out matching nothing; step 4 changes it.
+      map.addLayer({
+        id: "stop-selected",
+        type: "circle",
+        source: "stop-places",
+        filter: ["==", ["get", "id"], ""],
+        paint: {
+          "circle-radius": 9,
+          "circle-color": "#ffffff",
+          "circle-stroke-width": 3,
+          "circle-stroke-color": ROUTE_COLOR,
+        },
+      });
+
       map.addSource("route", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addSource("stops", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({
@@ -215,6 +273,7 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
             "unknown", statusColors.unknown,
             "waiting", statusColors.waiting,
             "finished", statusColors.finished,
+            "notInService", statusColors.notInService,
             statusColors.onTime,
           ],
           "circle-stroke-width": 1.5,
@@ -256,13 +315,25 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
         .catch(() => {}); // a browser that can't answer simply starts at the usual place
     });
 
-    // A click on a dot selects that vehicle; a click anywhere else clears the selection.
+    // A click on a vehicle selects it. Otherwise a click on a stop selects the stop. A click
+    // anywhere else clears both. The vehicle is asked for first, because it lies on top.
     map.on("click", (event) => {
-      const [hit] = map.queryRenderedFeatures(event.point, { layers: ["vehicle-dots"] });
-      setSelectedId(hit ? (hit.properties.id as string) : null);
+      const [vehicle] = map.queryRenderedFeatures(event.point, { layers: ["vehicle-dots"] });
+      const [stop] = vehicle ? [] : map.queryRenderedFeatures(event.point, { layers: ["stop-dots"] });
+      setSelectedId(vehicle ? (vehicle.properties.id as string) : null);
+      setSelectedStop(stop ? { id: stop.properties.id as string, name: stop.properties.name as string } : null);
     });
-    map.on("mouseenter", "vehicle-dots", () => (map.getCanvas().style.cursor = "pointer"));
-    map.on("mouseleave", "vehicle-dots", () => (map.getCanvas().style.cursor = ""));
+    for (const layer of ["vehicle-dots", "stop-dots"]) {
+      map.on("mouseenter", layer, () => (map.getCanvas().style.cursor = "pointer"));
+      map.on("mouseleave", layer, () => (map.getCanvas().style.cursor = ""));
+    }
+
+    // Ask for the stops once the visitor is close enough to see them (and never un-ask).
+    const wantStops = () => {
+      if (map.getZoom() >= STOPS_FROM_ZOOM - 0.5) setStopsWanted(true);
+    };
+    map.on("zoom", wantStops);
+    map.on("load", wantStops);
 
     // The function an effect returns is its clean-up: it runs when the component goes away.
     return () => {
@@ -333,6 +404,26 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
       })),
     });
   }, [mapReady, journey]);
+
+  // 4. Put the stops on the map when they have been fetched, and ring the clicked one.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
+    map.getSource<GeoJSONSource>("stop-places")?.setData({
+      type: "FeatureCollection",
+      features: (stopPlaces ?? []).map((stop) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [stop.lon, stop.lat] },
+        properties: { id: stop.id, name: stop.name },
+      })),
+    });
+  }, [mapReady, stopPlaces]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    // A filter decides which features a layer draws: here, only the stop with the clicked id.
+    mapRef.current?.setFilter("stop-selected", ["==", ["get", "id"], selectedStop?.id ?? ""]);
+  }, [mapReady, selectedStop]);
 
   // The stops the vehicle has not left yet. "Now" is the time of the vehicle's last report rather
   // than the visitor's own clock, which may be wrong.
@@ -440,13 +531,27 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
               {selected.line}
             </span>
             <div className="min-w-0 flex-1">
+              {/* A bus that is not in service has no real destination: its sign shows a web address. */}
               <p className="font-medium">
-                {text.towards} {selected.destination}
+                {selected.phase === "notInService"
+                  ? text.delay.notInService
+                  : `${text.towards} ${selected.destination}`}
               </p>
               <p className="truncate text-xs text-muted">
                 {text.modes[selected.mode as keyof typeof text.modes] ?? selected.mode} · {selected.lineName}
               </p>
-              <p className="mt-1 text-sm">{statusText(selected, text.delay)}</p>
+              {selected.phase !== "notInService" && (
+                <p className="mt-1 text-sm">
+                  {statusText(selected, text.delay)}
+                  {/* How full it is, when the vehicle reports it and we have words for it. */}
+                  {selected.occupancy && selected.occupancy in text.occupancy && (
+                    <span className="text-muted">
+                      {" · "}
+                      {text.occupancy[selected.occupancy as keyof typeof text.occupancy]}
+                    </span>
+                  )}
+                </p>
+              )}
             </div>
             <button
               type="button"
@@ -497,6 +602,21 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
           )}
         </section>
       )}
+
+      {/* The departure board for a clicked stop. Clicking one of its departures selects that
+          vehicle instead, which closes the board and shows the vehicle's own card. */}
+      {selectedStop && !selected && (
+        <StopCard
+          stop={selectedStop}
+          vehicles={vehicles ?? []}
+          text={text}
+          onPickVehicle={(vehicleId) => {
+            setSelectedId(vehicleId);
+            setSelectedStop(null);
+          }}
+          onClose={() => setSelectedStop(null)}
+        />
+      )}
     </>
   );
 }
@@ -520,6 +640,8 @@ function statusText(vehicle: Vehicle, words: Dictionary["map"]["delay"]) {
       return (vehicle.delay ?? 0) < -30 ? words.leavesIn.replace("{n}", minutes) : words.waiting;
     case "finished":
       return words.finished;
+    case "notInService":
+      return words.notInService;
     case "unknown":
       return words.unknown;
     case "onTime":

@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     const answer = await response.json();
     if (answer.errors) throw new Error(JSON.stringify(answer.errors));
 
-    const vehicles = toVehicles(answer.data.vehicles);
+    const vehicles = toVehicles(answer.data.vehicles, areas[areaId]);
 
     return Response.json(vehicles, {
       // s-maxage tells Vercel's network to keep this answer for 10 seconds and reuse it for every

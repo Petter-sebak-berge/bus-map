@@ -92,7 +92,7 @@ export function useVehicles(areaId: AreaId) {
           });
           setLive(true);
         } else if (message.type === "next") {
-          take(toVehicles(message.payload.data?.vehicles ?? []));
+          take(toVehicles(message.payload.data?.vehicles ?? [], areas[areaId]));
         } else if (message.type === "ping") {
           send({ type: "pong" }); // "are you still there?" "yes"
         }

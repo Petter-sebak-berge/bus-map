@@ -2,6 +2,8 @@
 // delay becomes a colour. Both the server (app/api/vehicles/route.ts) and the map
 // (app/_components/BusMap.tsx) use this file, so they always agree.
 
+import type { Area } from "./areas";
+
 export type Vehicle = {
   id: string;
   mode: string; // "BUS", "FERRY", "RAIL", ...
@@ -14,8 +16,11 @@ export type Vehicle = {
   // null when the vehicle doesn't report one.
   bearing: number | null;
   // Where the vehicle is in its trip. A "waiting" vehicle stands at the first stop of a trip that
-  // has not started yet; a "finished" one has reached its last stop.
-  phase: "waiting" | "running" | "finished";
+  // has not started yet; a "finished" one has reached its last stop; one that is "notInService"
+  // carries no passengers, for example on its way to or from the garage.
+  phase: "waiting" | "running" | "finished" | "notInService";
+  // How full the vehicle is, in Entur's words (e.g. "seatsAvailable"). null when it doesn't say.
+  occupancy: string | null;
   // Seconds behind schedule; negative means ahead of it. For a waiting vehicle, a negative number
   // is the time left until it departs.
   delay: number | null;
@@ -32,6 +37,7 @@ export const VEHICLE_FIELDS = `
   lastUpdated
   delay
   vehicleStatus
+  occupancyStatus
   bearing
   destinationName
   location { latitude longitude }
@@ -48,6 +54,7 @@ export type EnturVehicle = {
   lastUpdated: string;
   delay: number | null;
   vehicleStatus: string | null; // "AT_ORIGIN", "ASSIGNED", "IN_PROGRESS", "COMPLETED" or nothing
+  occupancyStatus: string | null; // "seatsAvailable", "standingAvailable", "noData", ...
   bearing: number | null;
   destinationName: string | null;
   location: { latitude: number; longitude: number } | null;
@@ -56,15 +63,20 @@ export type EnturVehicle = {
   serviceJourney: { id: string } | null;
 };
 
-// Entur has four words for where a vehicle is in its trip; the map needs three.
-function phaseOf(vehicleStatus: string | null): Vehicle["phase"] {
-  if (vehicleStatus === "AT_ORIGIN" || vehicleStatus === "ASSIGNED") return "waiting";
-  if (vehicleStatus === "COMPLETED") return "finished";
+// Works out where a vehicle is in its trip. Entur has four words for it, and none for "not in
+// service". We recognise that in two ways: the sign on the front (see lib/areas.ts), or a trip id
+// that is not a real timetable trip. Real ones contain ":ServiceJourney:".
+function phaseOf(vehicle: EnturVehicle, area: Area): Vehicle["phase"] {
+  const tripId = vehicle.serviceJourney?.id;
+  if (area.notInService.includes(vehicle.destinationName ?? "")) return "notInService";
+  if (tripId && !tripId.includes(":ServiceJourney:")) return "notInService";
+  if (vehicle.vehicleStatus === "AT_ORIGIN" || vehicle.vehicleStatus === "ASSIGNED") return "waiting";
+  if (vehicle.vehicleStatus === "COMPLETED") return "finished";
   return "running";
 }
 
 // Turns Entur's vehicles into ours, leaving out any that have no position.
-export function toVehicles(list: EnturVehicle[]): Vehicle[] {
+export function toVehicles(list: EnturVehicle[], area: Area): Vehicle[] {
   return list
     .filter((vehicle) => vehicle.location)
     .map((vehicle) => ({
@@ -78,7 +90,8 @@ export function toVehicles(list: EnturVehicle[]): Vehicle[] {
       // About one vehicle in ten reports exactly 0 or nothing. A real heading is almost never
       // exactly 0, and it would wrongly read as "heading north", so 0 is treated as unknown.
       bearing: vehicle.bearing || null,
-      phase: phaseOf(vehicle.vehicleStatus),
+      phase: phaseOf(vehicle, area),
+      occupancy: vehicle.occupancyStatus && vehicle.occupancyStatus !== "noData" ? vehicle.occupancyStatus : null,
       delay: vehicle.delay,
       updated: vehicle.lastUpdated,
       journeyId: vehicle.serviceJourney?.id ?? null,
@@ -88,7 +101,15 @@ export function toVehicles(list: EnturVehicle[]): Vehicle[] {
 // A vehicle that has been silent this long is parked, and is left off the map.
 export const MAX_AGE_MS = 2 * 60 * 1000;
 
-export type Status = "waiting" | "finished" | "early" | "onTime" | "late" | "veryLate" | "unknown";
+export type Status =
+  | "waiting"
+  | "finished"
+  | "notInService"
+  | "early"
+  | "onTime"
+  | "late"
+  | "veryLate"
+  | "unknown";
 
 // What the map shows for a vehicle. Only a vehicle on a trip can be early or late: one that waits
 // for its departure would otherwise look "20 minutes early".
@@ -105,6 +126,7 @@ export function statusOf({ phase, delay }: Pick<Vehicle, "phase" | "delay">): St
 export const statusColors: Record<Status, string> = {
   waiting: "#93a39b",
   finished: "#93a39b",
+  notInService: "#93a39b",
   early: "#6cb8f2",
   onTime: "#6ee7a0",
   late: "#f2b544",

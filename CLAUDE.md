@@ -20,6 +20,8 @@ repository, which Claude reads automatically. They are kept only there; don't co
 - `app/api/vehicles/route.ts` – asks Entur's GraphQL API for vehicle positions and caches the answer.
 - `app/api/journey/route.ts`, `app/_components/useJourney.ts`, `lib/journey.ts` – the route and coming stops
   of the clicked vehicle.
+- `app/api/stops/route.ts`, `app/api/departures/route.ts`, `app/_components/useStops.ts`,
+  `app/_components/StopCard.tsx`, `lib/stops.ts` – the stops on the map and the departure board of a clicked stop.
 - `lib/areas.ts` – the area the map covers. Nothing else names Bergen or Skyss; keep it that way.
 - `lib/mapStyles.ts` – the background maps to choose between.
 - `lib/vehicles.ts` – the `Vehicle` type, the list of fields asked of Entur and the conversion from Entur's
@@ -64,3 +66,16 @@ repository, which Claude reads automatically. They are kept only there; don't co
   `useJourney.ts` fetches it for the clicked vehicle and again every 30 seconds. Works for buses, ferries and
   trains. About 6% of buses carry an id like `21987190_208191` that the planner doesn't know; their
   destination reads "skyss.no" and they are driving to or from a garage. They get no route.
+- Stops and departure board (7 Oct 2026): `/api/stops` gives the area's 2,233 stop places (cached a day, fetched
+  when the visitor first zooms to about 12.5; drawn from zoom 13, named from 15). `/api/departures?id=NSR:StopPlace:…`
+  gives the next 15 departures. A departure and a vehicle share the trip id, so a departure whose vehicle is on
+  the map can be clicked to select it. Light rail stops are included, so Bybanen's departures show although its
+  vehicles are not in the position feed.
+- Not in service (7 Oct 2026): a vehicle whose destination is in the area's `notInService` list (`skyss.no`), or
+  whose trip id is not a `:ServiceJourney:` id, gets the phase `notInService`: grey, "Ikke i rute", no route.
+  About 7% of the buses.
+- Occupancy (7 Oct 2026): `occupancyStatus` from the vehicle feed, shown in the card. In the evening nearly
+  every bus said `seatsAvailable`; not looked at in rush hour.
+- A lesson: backslashes written through a shell script into a file can be lost. The line filter's regex lost
+  its whitespace class that way and went live broken for a day (7 Oct 2026). Edit such lines with the Edit
+  tool, not through a script, and read them back.
