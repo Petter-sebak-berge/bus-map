@@ -20,6 +20,8 @@ export type Vehicle = {
   // is the time left until it departs.
   delay: number | null;
   updated: string; // when the vehicle last reported its position
+  // The id of the trip the vehicle is on, used to look up its route and stops. null if unknown.
+  journeyId: string | null;
 };
 
 // The fields we ask Entur for, written in GraphQL. The server's question and the browser's live
@@ -35,6 +37,7 @@ export const VEHICLE_FIELDS = `
   location { latitude longitude }
   line { publicCode lineName }
   codespace { codespaceId }
+  serviceJourney { id }
 `;
 
 // One vehicle as Entur sends it. `codespace` says which company the vehicle belongs to ("SKY" is
@@ -50,6 +53,7 @@ export type EnturVehicle = {
   location: { latitude: number; longitude: number } | null;
   line: { publicCode: string | null; lineName: string | null } | null;
   codespace: { codespaceId: string } | null;
+  serviceJourney: { id: string } | null;
 };
 
 // Entur has four words for where a vehicle is in its trip; the map needs three.
@@ -77,6 +81,7 @@ export function toVehicles(list: EnturVehicle[]): Vehicle[] {
       phase: phaseOf(vehicle.vehicleStatus),
       delay: vehicle.delay,
       updated: vehicle.lastUpdated,
+      journeyId: vehicle.serviceJourney?.id ?? null,
     }));
 }
 

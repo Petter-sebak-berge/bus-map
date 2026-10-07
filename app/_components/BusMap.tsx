@@ -4,12 +4,13 @@
 //   1. draws the map
 //   2. hands the newest positions to the map, which draws one dot per vehicle and lets it glide
 //      from where it was to where it is now
-// Where the positions come from is in useVehicles.ts.
+//   3. draws the route and lists the coming stops of the vehicle the visitor has clicked
+// Where the positions come from is in useVehicles.ts, and the route in useJourney.ts.
 //
 // The drawing is done by MapLibre, an open-source map library. The background maps it can show
 // are listed in lib/mapStyles.ts.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import maplibregl, { type GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { FeatureCollection, Point } from "geojson";
@@ -17,7 +18,14 @@ import { areas, type AreaId } from "@/lib/areas";
 import type { Dictionary } from "@/lib/dictionaries";
 import { mapStyleIds, mapStyles, type MapStyleId } from "@/lib/mapStyles";
 import { statusColors, statusOf, type Vehicle } from "@/lib/vehicles";
+import { useJourney } from "./useJourney";
 import { useVehicles } from "./useVehicles";
+
+// The colour of a clicked vehicle's route. Purple is not used for anything else on the map.
+const ROUTE_COLOR = "#7c3aed";
+
+// Writes a time as "14:05", Norwegian time whatever the visitor's own clock is set to.
+const clock = new Intl.DateTimeFormat("nb-NO", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Oslo" });
 
 // How long a dot takes to glide to a new position. New positions arrive about once a second.
 const GLIDE_MS = 1000;
@@ -87,11 +95,33 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
   // Where each dot is drawn right now.
   const shown = useRef(new Map<string, Position>());
   const { vehicles, failed, live } = useVehicles(areaId);
+  // What the visitor has typed in the "find line" field, exactly as typed.
+  const [lineSearch, setLineSearch] = useState("");
+
+  // The vehicles to draw: all of them, or only the lines asked for. "3, 4E 10" means lines 3, 4E
+  // and 10: the text is split at commas and spaces, and capital letters don't matter.
+  // useMemo remembers the result and works it out again only when the list or the text changes,
+  // so the map isn't handed a "new" list every time something unrelated is redrawn.
+  const shownVehicles = useMemo(() => {
+    const wanted = lineSearch.toUpperCase().split(/[s,]+/).filter(Boolean);
+    if (!vehicles || wanted.length === 0) return vehicles;
+    return vehicles.filter((vehicle) => wanted.includes(vehicle.line.toUpperCase()));
+  }, [vehicles, lineSearch]);
 
   // "State" is what the component remembers and redraws for when it changes.
-  const [styleId, setStyleId] = useState<MapStyleId>("liberty");
+  const [styleId, setStyleId] = useState<MapStyleId>("bright");
   const [mapReady, setMapReady] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Whether the panel at the top shows everything or only its first lines.
+  const [panelOpen, setPanelOpen] = useState(true);
+  // Whether the list of coming stops is shown. null means the visitor hasn't chosen yet: then the
+  // list is open on wide screens and closed on phones, where the card would cover much of the map.
+  const [stopsOpen, setStopsOpen] = useState<boolean | null>(null);
+
+  // The clicked vehicle, looked up from the newest list each time, so the card follows the bus as
+  // its delay changes. Its trip id is handed to useJourney, which fetches the route and stops.
+  const selected = vehicles?.find((vehicle) => vehicle.id === selectedId);
+  const journey = useJourney(selected?.journeyId ?? null);
 
   // 1. Draw the map. useEffect runs after the page is shown, and only in the browser. It runs
   //    again when the visitor picks another background: the old map is removed and a new one drawn.
@@ -126,6 +156,30 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
     map.on("load", () => {
       // A "source" is the data, a "layer" is one way of drawing it. One source, three layers,
       // drawn in this order: the direction pointers, the coloured dots, and the line numbers.
+      // The route of the clicked vehicle and its stops come first, so they lie under the dots.
+      // They start out empty and are filled in further down, in step 3.
+      map.addSource("route", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addSource("stops", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: "route",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": ROUTE_COLOR, "line-width": 4, "line-opacity": 0.85 },
+      });
+      map.addLayer({
+        id: "route-stops",
+        type: "circle",
+        source: "stops",
+        minzoom: 11, // zoomed further out, the stops would only be a smear along the line
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2, 15, 5],
+          "circle-color": "#ffffff",
+          "circle-stroke-width": 2,
+          "circle-stroke-color": ROUTE_COLOR,
+        },
+      });
+
       map.addSource("vehicles", { type: "geojson", data: toGeoJson([]) });
       map.addImage("pointer", pointerImage(outline), { pixelRatio: 2 });
       map.addLayer({
@@ -225,7 +279,7 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
   //    from where it is drawn now to its new position, a small step per screen frame.
   useEffect(() => {
     const source = mapRef.current?.getSource<GeoJSONSource>("vehicles");
-    if (!mapReady || !vehicles || !source) return;
+    if (!mapReady || !shownVehicles || !source) return;
 
     const from = shown.current;
     const started = performance.now();
@@ -237,7 +291,7 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
       // `progress` goes from 0 (just started) to 1 (arrived).
       const progress = glide ? Math.min(1, (now - started) / GLIDE_MS) : 1;
       const next = new Map<string, Position>();
-      for (const vehicle of vehicles!) {
+      for (const vehicle of shownVehicles!) {
         const start = from.get(vehicle.id);
         const far =
           !start || Math.abs(vehicle.lon - start[0]) > MAX_GLIDE || Math.abs(vehicle.lat - start[1]) > MAX_GLIDE;
@@ -249,7 +303,7 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
         );
       }
       shown.current = next;
-      source!.setData(toGeoJson(vehicles!, next));
+      source!.setData(toGeoJson(shownVehicles!, next));
       // requestAnimationFrame asks the browser to call `draw` again just before it next
       // repaints the screen, usually 60 times a second.
       if (progress < 1) frame = requestAnimationFrame(draw);
@@ -257,14 +311,45 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
 
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [mapReady, vehicles]);
+  }, [mapReady, shownVehicles]);
 
-  // Looked up from the newest list each time, so the card follows the bus as its delay changes.
-  const selected = vehicles?.find((vehicle) => vehicle.id === selectedId);
+  // 3. Draw the route of the clicked vehicle, and take it away again when nothing is selected.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
+    const shownJourney = typeof journey === "object" ? journey : null;
+    // A "LineString" is GeoJSON's word for a line through a list of points.
+    map.getSource<GeoJSONSource>("route")?.setData({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: shownJourney?.route ?? [] },
+      properties: {},
+    });
+    map.getSource<GeoJSONSource>("stops")?.setData({
+      type: "FeatureCollection",
+      features: (shownJourney?.stops ?? []).map((stop) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [stop.lon, stop.lat] },
+        properties: {},
+      })),
+    });
+  }, [mapReady, journey]);
+
+  // The stops the vehicle has not left yet. "Now" is the time of the vehicle's last report rather
+  // than the visitor's own clock, which may be wrong.
+  const comingStops =
+    selected && typeof journey === "object"
+      ? journey.stops.filter((stop) => Date.parse(stop.expected) > Date.parse(selected.updated) - 30_000)
+      : [];
 
   let statusLine = text.loading;
   if (failed) statusLine = text.failed;
-  else if (vehicles) statusLine = text.count.replace("{n}", String(vehicles.length));
+  else if (shownVehicles) {
+    // With a line typed in and nothing found, say so instead of "0 vehicles".
+    statusLine =
+      lineSearch.trim() && shownVehicles.length === 0
+        ? text.line.none
+        : text.count.replace("{n}", String(shownVehicles.length));
+  }
 
   return (
     <>
@@ -286,29 +371,63 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
             </span>
           )}
         </p>
-        <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted">
-          {(["onTime", "late", "veryLate", "early", "waiting"] as const).map((status) => (
-            <li key={status} className="flex items-center gap-1.5">
-              <span className="size-2.5 shrink-0 rounded-full" style={{ background: statusColors[status] }} />
-              {text.legend[status]}
-            </li>
-          ))}
-        </ul>
-        <label className="mt-3 flex items-center gap-2 text-xs text-muted">
-          {text.style.label}
-          <select
-            value={styleId}
-            onChange={(event) => setStyleId(event.target.value as MapStyleId)}
-            className="rounded border border-white/15 bg-bg px-1.5 py-1 text-ink"
-          >
-            {mapStyleIds.map((id) => (
-              <option key={id} value={id}>
-                {text.style.names[id]}
-              </option>
+        {/* Everything from here to the fold button can be folded away. "hidden" is a Tailwind class
+            that takes an element off the page without removing it, so what was typed stays. */}
+        <div className={panelOpen ? "" : "hidden"}>
+          <label className="mt-2 flex items-center gap-2 text-xs text-muted">
+            {text.line.label}
+            {/* type="search" gives the field a small × for emptying it in most browsers. */}
+            <input
+              type="search"
+              value={lineSearch}
+              onChange={(event) => setLineSearch(event.target.value)}
+              placeholder={text.line.placeholder}
+              autoComplete="off"
+              className="min-w-0 flex-1 rounded border border-white/15 bg-bg px-2 py-1 text-ink placeholder:text-muted/60"
+            />
+          </label>
+          <ul className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted">
+            {(["onTime", "late", "veryLate", "early", "waiting"] as const).map((status) => (
+              <li key={status} className="flex items-center gap-1.5">
+                <span className="size-2.5 shrink-0 rounded-full" style={{ background: statusColors[status] }} />
+                {text.legend[status]}
+              </li>
             ))}
-          </select>
-        </label>
-        {footer}
+          </ul>
+          <label className="mt-3 flex items-center gap-2 text-xs text-muted">
+            {text.style.label}
+            <select
+              value={styleId}
+              onChange={(event) => setStyleId(event.target.value as MapStyleId)}
+              className="rounded border border-white/15 bg-bg px-1.5 py-1 text-ink"
+            >
+              {mapStyleIds.map((id) => (
+                <option key={id} value={id}>
+                  {text.style.names[id]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {footer}
+        </div>
+        {/* Folded, the panel still says where the data comes from, as Entur's licence asks. */}
+        {!panelOpen && (
+          <p className="mt-1 text-xs text-muted">
+            <a href="https://entur.no" className="underline underline-offset-2 hover:text-ink">
+              {text.credit}
+            </a>
+          </p>
+        )}
+        {/* aria-expanded tells screen readers whether the panel is open. */}
+        <button
+          type="button"
+          onClick={() => setPanelOpen(!panelOpen)}
+          aria-expanded={panelOpen}
+          className="mt-2 flex w-full items-center justify-center gap-1 border-t border-white/10 pt-2 text-xs text-muted hover:text-ink"
+        >
+          {panelOpen ? text.panel.hide : text.panel.show}
+          <span aria-hidden="true">{panelOpen ? "▴" : "▾"}</span>
+        </button>
       </section>
 
       {selected && (
@@ -338,10 +457,56 @@ export default function BusMap({ areaId, text, children, footer }: Props) {
               ✕
             </button>
           </div>
+          {/* The coming stops. Only a handful fit; the rest are reached by scrolling the list. */}
+          {journey === "loading" && <p className="mt-2 text-xs text-muted">{text.stops.loading}</p>}
+          {comingStops.length > 0 && (
+            <>
+              {/* The heading is a button that opens and closes the list. The two arrows are both in
+                  the page, and the same classes that show or hide the list pick which one is seen. */}
+              <h2 className="mt-3 text-xs font-medium uppercase tracking-wide text-muted">
+                <button
+                  type="button"
+                  onClick={() => setStopsOpen(!(stopsOpen ?? window.matchMedia("(min-width: 640px)").matches))}
+                  className="flex w-full items-center justify-between uppercase tracking-wide hover:text-ink"
+                >
+                  {text.stops.heading}
+                  <span aria-hidden="true">
+                    <span className={shownWhen(stopsOpen)}>▴</span>
+                    <span className={shownWhen(stopsOpen === null ? null : !stopsOpen, true)}>▾</span>
+                  </span>
+                </button>
+              </h2>
+              <ol className={`mt-1 max-h-36 overflow-y-auto text-sm ${shownWhen(stopsOpen)}`}>
+                {comingStops.map((stop, index) => {
+                  const expected = clock.format(new Date(stop.expected));
+                  const aimed = clock.format(new Date(stop.aimed));
+                  return (
+                    <li key={index} className="flex gap-3 py-0.5">
+                      <span className="shrink-0 tabular-nums">
+                        {expected}
+                        {/* When the expected time differs from the timetable, the timetable's time is
+                            shown crossed out beside it. */}
+                        {expected !== aimed && <s className="ml-1 text-xs text-muted">{aimed}</s>}
+                      </span>
+                      <span className="truncate text-muted">{stop.name}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </>
+          )}
         </section>
       )}
     </>
   );
+}
+
+// The classes that show or hide something that is open on wide screens and closed on phones
+// until the visitor chooses. "sm:" in Tailwind means "from 640 pixels wide and up".
+// `opposite` is for the thing shown in the other case (the arrow that says "open me").
+function shownWhen(open: boolean | null, opposite = false) {
+  if (open === null) return opposite ? "sm:hidden" : "hidden sm:block";
+  return open ? "" : "hidden";
 }
 
 // Turns a vehicle's status into words: 134 seconds late becomes "2 min late", and a bus waiting

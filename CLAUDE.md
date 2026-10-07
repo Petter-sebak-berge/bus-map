@@ -3,7 +3,7 @@
 # Bus map project ("Hvor er bussen?" / "Where's the bus?")
 
 A live map of public transport around Bergen, built with Next.js (App Router) + TypeScript + Tailwind CSS
-and MapLibre. Planned address: https://buss.servereniskogen.no.
+and MapLibre. Live at https://buss.servereniskogen.no; pushing to `main` publishes it.
 
 This repository is public. Nothing personal or private belongs in it, including in commit messages.
 
@@ -18,6 +18,8 @@ repository, which Claude reads automatically. They are kept only there; don't co
 - `app/_components/useVehicles.ts` – where positions come from: a snapshot from `/api/vehicles`, then Entur's
   live stream over WebSocket straight from the browser, with the snapshot every ten seconds as fallback.
 - `app/api/vehicles/route.ts` – asks Entur's GraphQL API for vehicle positions and caches the answer.
+- `app/api/journey/route.ts`, `app/_components/useJourney.ts`, `lib/journey.ts` – the route and coming stops
+  of the clicked vehicle.
 - `lib/areas.ts` – the area the map covers. Nothing else names Bergen or Skyss; keep it that way.
 - `lib/mapStyles.ts` – the background maps to choose between.
 - `lib/vehicles.ts` – the `Vehicle` type, the list of fields asked of Entur and the conversion from Entur's
@@ -44,7 +46,7 @@ repository, which Claude reads automatically. They are kept only there; don't co
   `ASSIGNED` it waits at its first stop and a negative delay is the time until departure; about a third of
   all vehicles are in that state. They are drawn grey.
 - The background maps are listed in `lib/mapStyles.ts` and picked in the top panel: three OpenFreeMap styles
-  (Liberty is the default). Changing background redraws the map. The line numbers use the font
+  (Bright is the default). Changing background redraws the map. The line numbers use the font
   `Noto Sans Regular`, which all three styles have. Kartverket's map and satellite pictures were tried and dropped.
 - Norwegian aerial photos (Norge i bilder) are not open: Kartverket closed the open service.
 - Fetching and the stream stop while the tab is hidden. The preview pane counts as hidden until its tab is fronted.
@@ -54,3 +56,11 @@ repository, which Claude reads automatically. They are kept only there; don't co
 - `npm run dev` – start the local dev server at http://localhost:3200
 - `npm run build` – build the production version (the same thing Vercel runs)
 - `npm run lint` – check the code for common mistakes
+- Find a line (7 Oct 2026): `lineSearch` and `shownVehicles` in `BusMap.tsx`. The field takes several lines,
+  split at commas and spaces, matched exactly and without regard to capitals.
+- Route and next stops (7 Oct 2026): each vehicle carries `journeyId` (Entur's `serviceJourney { id }`).
+  `/api/journey?id=…` asks Entur's journey planner (`https://api.entur.io/journey-planner/v3/graphql`) for
+  `pointsOnLink` (the road, an encoded polyline unpacked in `lib/journey.ts`) and `estimatedCalls` (the stops).
+  `useJourney.ts` fetches it for the clicked vehicle and again every 30 seconds. Works for buses, ferries and
+  trains. About 6% of buses carry an id like `21987190_208191` that the planner doesn't know; their
+  destination reads "skyss.no" and they are driving to or from a garage. They get no route.

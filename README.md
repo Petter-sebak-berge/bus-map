@@ -1,7 +1,8 @@
 # Where's the bus?
 
 A live map of the buses, boats and trains around Bergen, Norway: one dot per vehicle, coloured by
-how late it is. Click a dot to see its line, where it is going and its delay.
+how late it is. Click a dot to see its line, its delay, its route drawn on the map and its next
+stops. Type a line number to see only that line.
 
 Built with Next.js (App Router), TypeScript, Tailwind CSS and MapLibre.
 
@@ -25,6 +26,9 @@ Built with Next.js (App Router), TypeScript, Tailwind CSS and MapLibre.
 | `app/_components/BusMap.tsx` | The map: draws it, lets the dots glide, shows the selected vehicle |
 | `app/_components/useVehicles.ts` | Where positions come from: the endpoint first, then the live stream |
 | `app/_components/VisitCounter.tsx` | Counts a visit: a number per day, language and country, nothing per visitor |
+| `app/api/journey/route.ts` | A second endpoint: the road and stops of one trip, from Entur's journey planner |
+| `app/_components/useJourney.ts` | Fetches that for the vehicle you click |
+| `lib/journey.ts` | What a trip looks like, and the unpacking of Entur's compact road format |
 | `lib/areas.ts` | The area the map covers. More areas can be added here |
 | `lib/mapStyles.ts` | The background maps the visitor can choose between |
 | `lib/vehicles.ts` | What a vehicle looks like, how Entur's data becomes that, and how a status becomes a colour |

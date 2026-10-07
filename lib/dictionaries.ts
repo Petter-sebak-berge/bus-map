@@ -21,6 +21,7 @@ const no = {
     failed: "Får ikke hentet posisjoner akkurat nå. Prøver igjen.",
     count: "{n} kjøretøy i trafikk nå",
     live: "Direkte",
+    line: { label: "Finn linje", placeholder: "f.eks. 10 eller 3, 4", none: "Ingen kjøretøy på den linjen akkurat nå" },
     legend: {
       early: "For tidlig",
       onTime: "I rute",
@@ -40,6 +41,9 @@ const no = {
       finished: "Ferdig med turen",
     },
     close: "Lukk",
+    stops: { heading: "Neste stopp", loading: "Henter rute …" },
+    panel: { hide: "Skjul", show: "Vis mer" },
+    credit: "Data gjort tilgjengelig av Entur",
     locate: { find: "Vis min posisjon", unavailable: "Posisjonen er ikke tilgjengelig" },
     style: {
       label: "Kart",
@@ -75,6 +79,7 @@ const en: Dictionary = {
     failed: "Can't fetch positions right now. Trying again.",
     count: "{n} vehicles on the road now",
     live: "Live",
+    line: { label: "Find line", placeholder: "e.g. 10 or 3, 4", none: "No vehicles on that line right now" },
     legend: {
       early: "Early",
       onTime: "On time",
@@ -94,6 +99,9 @@ const en: Dictionary = {
       finished: "Trip finished",
     },
     close: "Close",
+    stops: { heading: "Next stops", loading: "Fetching route …" },
+    panel: { hide: "Hide", show: "Show more" },
+    credit: "Data made available by Entur",
     locate: { find: "Show my location", unavailable: "Location not available" },
     style: {
       label: "Map",
